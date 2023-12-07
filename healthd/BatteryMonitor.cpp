@@ -304,6 +304,8 @@ static BatteryMonitor::PowerSupplyType readPowerSupplyType(const String8& path) 
             {"USB", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_USB},
             {"USB_DCP", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {"USB_HVDCP", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
+            {"USB_HVDCP_3", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
+            {"USB_HVDCP_3P5", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {"USB_CDP", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {"USB_ACA", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {"USB_C", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
@@ -311,6 +313,7 @@ static BatteryMonitor::PowerSupplyType readPowerSupplyType(const String8& path) 
             {"USB_PD_DRP", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_USB},
             {"Wireless", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_WIRELESS},
             {"Dock", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_DOCK},
+            {"DASH", BatteryMonitor::ANDROID_POWER_SUPPLY_TYPE_AC},
             {NULL, 0},
     };
     std::string buf;
@@ -441,6 +444,52 @@ void BatteryMonitor::updateValues(void) {
         mHealthInfo->chargingState = getBatteryChargingState(buf.c_str());
 
     double MaxPower = 0;
+
+    // Rescan for the available charger types
+    std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(POWER_SUPPLY_SYSFS_PATH), closedir);
+    if (dir == NULL) {
+        KLOG_ERROR(LOG_TAG, "Could not open %s\n", POWER_SUPPLY_SYSFS_PATH);
+    } else {
+        struct dirent* entry;
+        String8 path;
+
+        mChargerNames.clear();
+
+        while ((entry = readdir(dir.get()))) {
+            const char* name = entry->d_name;
+
+            if (!strcmp(name, ".") || !strcmp(name, ".."))
+                continue;
+
+            // Look for "type" file in each subdirectory
+            path.clear();
+            path.appendFormat("%s/%s/type", POWER_SUPPLY_SYSFS_PATH, name);
+            switch(readPowerSupplyType(path)) {
+            case ANDROID_POWER_SUPPLY_TYPE_AC:
+            case ANDROID_POWER_SUPPLY_TYPE_USB:
+            case ANDROID_POWER_SUPPLY_TYPE_WIRELESS:
+            case ANDROID_POWER_SUPPLY_TYPE_DOCK:
+                path.clear();
+                path.appendFormat("%s/%s/online", POWER_SUPPLY_SYSFS_PATH, name);
+                if (access(path.string(), R_OK) == 0)
+                    mChargerNames.add(String8(name));
+                break;
+            default:
+                break;
+            }
+
+            // Look for "is_dock" file
+            path.clear();
+            path.appendFormat("%s/%s/is_dock", POWER_SUPPLY_SYSFS_PATH, name);
+            if (access(path.string(), R_OK) == 0) {
+                path.clear();
+                path.appendFormat("%s/%s/online", POWER_SUPPLY_SYSFS_PATH, name);
+                if (access(path.string(), R_OK) == 0)
+                    mChargerNames.add(String8(name));
+
+            }
+        }
+    }
 
     for (size_t i = 0; i < mChargerNames.size(); i++) {
         String8 path;

@@ -74,6 +74,7 @@
 #include "subcontext.h"
 #include "system/core/init/property_service.pb.h"
 #include "util.h"
+#include "vendor_init.h"
 
 using namespace std::literals;
 
@@ -830,13 +831,13 @@ static void LoadPropertiesFromSecondStageRes(std::map<std::string, std::string>*
 // So we need to apply the same rule of build/make/tools/post_process_props.py
 // on runtime.
 static void update_sys_usb_config() {
-    bool is_debuggable = android::base::GetBoolProperty("ro.debuggable", false);
+    bool is_eng = !android::base::GetBoolProperty("ro.adb.secure", true);
     std::string config = android::base::GetProperty("persist.sys.usb.config", "");
     // b/150130503, add (config == "none") condition here to prevent appending
     // ",adb" if "none" is explicitly defined in default prop.
     if (config.empty() || config == "none") {
-        InitPropertySet("persist.sys.usb.config", is_debuggable ? "adb" : "none");
-    } else if (is_debuggable && config.find("adb") == std::string::npos &&
+        InitPropertySet("persist.sys.usb.config", is_eng ? "adb" : "none");
+    } else if (is_eng && config.find("adb") == std::string::npos &&
                config.length() + 4 < PROP_VALUE_MAX) {
         config.append(",adb");
         InitPropertySet("persist.sys.usb.config", config);
@@ -1205,6 +1206,9 @@ void PropertyLoadBootDefaults() {
                        << "' while loading .prop files" << error;
         }
     }
+
+    // Update with vendor-specific property runtime overrides
+    vendor_load_properties();
 
     property_initialize_ro_product_props();
     property_initialize_build_id();
